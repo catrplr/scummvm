@@ -63,6 +63,9 @@ EclipseEngine::EclipseEngine(OSystem *syst, const ADGameDescription *gd) : Frees
 
 	_endArea = 1;
 	_endEntrance = 33;
+
+	_lastThirtySeconds = 0;
+	_resting = false;
 }
 
 void EclipseEngine::initGameState() {
@@ -91,34 +94,51 @@ void EclipseEngine::loadAssets() {
 }
 
 bool EclipseEngine::checkIfGameEnded() {
-	if (_hasFallen && _avoidRenderingFrames == 0) {
-		_hasFallen = false;
-		playSoundFx(4, false);
+	if (_gameStateControl == kFreescapeGameStatePlaying) {
+		if (_hasFallen && _avoidRenderingFrames == 0) {
+			_hasFallen = false;
+			playSoundFx(4, false);
 
-		// If shield is less than 11 after a fall, the game ends
-		if (_gameStateVars[k8bitVariableShield] > 15 + 11) {
-			_gameStateVars[k8bitVariableShield] -= 15;
-			return false; // Game can continue
+			// If shield is less than 11 after a fall, the game ends
+			if (_gameStateVars[k8bitVariableShield] > 15 + 11) {
+				_gameStateVars[k8bitVariableShield] -= 15;
+				return false; // Game can continue
+			}
+			if (!_fallenMessage.empty())
+				insertTemporaryMessage(_fallenMessage, _countdown - 4);
+			_gameStateControl = kFreescapeGameStateEnd;
+		} else if (getGameBit(16)) {
+			_gameStateControl = kFreescapeGameStateEnd;
+			insertTemporaryMessage(_messagesList[4], INT_MIN);
 		}
-		if (!_fallenMessage.empty())
-			insertTemporaryMessage(_fallenMessage, _countdown - 4);
-		_gameStateControl = kFreescapeGameStateEnd;
-	}
 
-	FreescapeEngine::checkIfGameEnded();
+		FreescapeEngine::checkIfGameEnded();
+	}
 	return false;
 }
 
 void EclipseEngine::endGame() {
+	FreescapeEngine::endGame();
+
+	if (!_endGamePlayerEndArea)
+		return;
+
 	if (_gameStateControl == kFreescapeGameStateEnd) {
 		removeTimers();
-		if (_countdown > 0)
-			_countdown -= 10;
-		else
-			_countdown = 0;
+		if (getGameBit(16)) {
+			if (_countdown > - 3600)
+				_countdown -= 10;
+			else
+				_countdown = -3600;
+		} else {
+			if (_countdown > 0)
+				_countdown -= 10;
+			else
+				_countdown = 0;
+		}
 	}
 
-	if (_endGameKeyPressed && _countdown == 0) {
+	if (_endGameKeyPressed && (_countdown == 0 || _countdown == -3600)) {
 		if (isSpectrum())
 			playSound(5, true);
 		_gameStateControl = kFreescapeGameStateRestart;
@@ -145,13 +165,25 @@ void EclipseEngine::gotoArea(uint16 areaID, int entranceID) {
 	_lastPosition = _position;
 
 	if (areaID == _startArea && entranceID == _startEntrance) {
+		_yaw = 180;
+		_pitch = 0;
+
 		if (isSpectrum())
 			playSound(7, true);
 		else
 			playSound(9, true);
+
+		if (isEclipse2()) {
+			_yaw = 120;
+			_gameStateControl = kFreescapeGameStateStart;
+		}
+
 	} if (areaID == _endArea && entranceID == _endEntrance) {
 		_flyMode = true;
-		_pitch = 20;
+		if (isDemo())
+			_pitch = 20;
+		else
+			_pitch = 10;
 	} else {
 		if (isSpectrum())
 			playSound(7, false);
@@ -170,16 +202,24 @@ void EclipseEngine::drawBackground() {
 	clearBackground();
 	_gfx->drawBackground(_currentArea->_skyColor);
 	if (_currentArea && _currentArea->getAreaID() == 1) {
-		if (_countdown <= 15 * 60) // Last 15 minutes
+		if (ABS(_countdown) <= 15 * 60) // Last 15 minutes
 			_gfx->drawBackground(5);
-		if (_countdown <= 10) // Last 10 seconds
+		if (ABS(_countdown) <= 10) // Last 10 seconds
 			_gfx->drawBackground(1);
 
 		float progress = 0;
-		if (_countdown >= 0)
+		if (_countdown >= 0 || getGameBit(16))
 			progress = float(_countdown) / _initialCountdown;
 
-		_gfx->drawEclipse(15, 10, progress);
+		uint8 color1 = 15;
+		uint8 color2 = 10;
+
+		if (isSpectrum() || isCPC()) {
+			color1 = 2;
+			color2 = 10;
+		}
+
+		_gfx->drawEclipse(color1, color2, progress);
 	}
 }
 
@@ -347,6 +387,59 @@ void EclipseEngine::drawAnalogClockHand(Graphics::Surface *surface, int x, int y
 	surface->drawLine(x, y, x+(int)w, y+(int)h, color);
 }
 
+// Copied from BITMAP::circlefill in engines/ags/lib/allegro/surface.cpp
+void fillCircle(Graphics::Surface *surface, int x, int y, int radius, int color) {
+	int cx = 0;
+	int cy = radius;
+	int df = 1 - radius;
+	int d_e = 3;
+	int d_se = -2 * radius + 5;
+
+	do {
+		surface->hLine(x - cy, y - cx, x + cy, color);
+
+		if (cx)
+			surface->hLine(x - cy, y + cx, x + cy, color);
+
+		if (df < 0) {
+			df += d_e;
+			d_e += 2;
+			d_se += 2;
+		} else {
+			if (cx != cy) {
+				surface->hLine(x - cx, y - cy, x + cx, color);
+
+				if (cy)
+					surface->hLine(x - cx, y + cy, x + cx, color);
+			}
+
+			df += d_se;
+			d_e += 2;
+			d_se += 4;
+			cy--;
+		}
+
+		cx++;
+
+	} while (cx <= cy);
+}
+
+void EclipseEngine::drawEclipseIndicator(Graphics::Surface *surface, int x, int y, uint32 color1, uint32 color2) {
+	uint32 black = _gfx->_texturePixelFormat.ARGBToColor(0xFF, 0x00, 0x00, 0x00);
+
+	// These calls will cover the pixels of the hardcoded eclipse image
+	surface->fillRect(Common::Rect(x, y, x + 50, y + 20), black);
+
+	float progress = 0;
+	if (_countdown >= 0)
+		progress = float(_countdown) / _initialCountdown;
+
+	int difference = 14 * progress;
+
+	fillCircle(surface, x + 7, y + 10, 7, color1); // Sun
+	fillCircle(surface, x + 7 + difference, y + 10, 7, color2); // Moon
+}
+
 void EclipseEngine::drawIndicator(Graphics::Surface *surface, int xPosition, int yPosition, int separation) {
 	if (_indicators.size() == 0)
 		return;
@@ -427,6 +520,11 @@ void EclipseEngine::drawSensorShoot(Sensor *sensor) {
 }
 
 void EclipseEngine::updateTimeVariables() {
+	if (isEclipse2() && _gameStateControl == kFreescapeGameStateStart) {
+		executeLocalGlobalConditions(false, true, false);
+		_gameStateControl = kFreescapeGameStatePlaying;
+	}
+
 	if (_gameStateControl != kFreescapeGameStatePlaying)
 		return;
 	// This function only executes "on collision" room/global conditions

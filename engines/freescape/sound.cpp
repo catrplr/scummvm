@@ -39,9 +39,7 @@ void FreescapeEngine::loadSpeakerFxZX(Common::SeekableReadStream *file, int sfxT
 		int soundIdx = (i - 1) * 4;
 		file->seek(sfxTable + soundIdx);
 
-		byte *SFXtempStruct = (byte *)malloc(8 * sizeof(byte));
-		for (int j = 0; j < 8; j++)
-			SFXtempStruct[j] = 0;
+		byte SFXtempStruct[8] = {};
 
 		uint8 dataIndex = file->readByte();
 		uint16 soundValue = file->readUint16LE();
@@ -54,6 +52,8 @@ void FreescapeEngine::loadSpeakerFxZX(Common::SeekableReadStream *file, int sfxT
 		uint8 soundSize = 0;
 		int16 repetitions = 0;
 		debugC(1, kFreescapeDebugParser, "dataIndex: %x, value: %x, SFXtempStruct[0]: %x, type: %x", dataIndex, soundValue, SFXtempStruct[0], soundType);
+		if (soundType == 0xff)
+			break;
 
 		if ((soundType & 0x80) == 0) {
 			SFXtempStruct[6] = 0;
@@ -68,8 +68,8 @@ void FreescapeEngine::loadSpeakerFxZX(Common::SeekableReadStream *file, int sfxT
 					SFXtempStruct[2] = file->readByte();
 					SFXtempStruct[3] = file->readByte();
 
-					//for (int j = 0; j <= 7; j++)
-					//	debug("SFXtempStruct[%d]: %x", j, SFXtempStruct[j]);
+					for (int j = 0; j <= 7; j++)
+						debugC(1, kFreescapeDebugParser, "SFXtempStruct[%d]: %x", j, SFXtempStruct[j]);
 
 					do {
 						uint32 var9 = 0xffffff & (SFXtempStruct[3] * 0xd0);
@@ -116,8 +116,7 @@ void FreescapeEngine::loadSpeakerFxZX(Common::SeekableReadStream *file, int sfxT
 			file->seek(sound_ptr);
 			for (int j = 1; j <= 7; j++) {
 				SFXtempStruct[j] = file->readByte();
-				//debug("SFXtempStruct[%d]: %x", j, SFXtempStruct[j]);
-				//sound_ptr = sound_ptr + 1;
+				debugC(1, kFreescapeDebugParser, "SFXtempStruct[%d]: %x", j, SFXtempStruct[j]);
 			}
 			soundSize = SFXtempStruct[0];
 			repetitions = SFXtempStruct[1] | (SFXtempStruct[2] << 8);
@@ -141,18 +140,87 @@ void FreescapeEngine::loadSpeakerFxZX(Common::SeekableReadStream *file, int sfxT
 					var5 = soundValue;
 				} while (soundSize != 0);
 			} else if ((soundType & 0x7f) == 2) {
-				int size = 2 * (SFXtempStruct[1] + SFXtempStruct[2]);
+				repetitions = SFXtempStruct[1] | (SFXtempStruct[0] << 8);
+				debugC(1, kFreescapeDebugParser, "Repetitions: %x", repetitions);
+				uint16 sVar7 = SFXtempStruct[3];
+				soundType = 0;
+				soundSize = SFXtempStruct[2];
+				uint16 silenceSize = 0xff; //SFXtempStruct[4];
+				bool cond1 = (SFXtempStruct[4] != 0 && SFXtempStruct[4] != 2);
+				bool cond2 = SFXtempStruct[4] == 2;
+				bool cond3 = SFXtempStruct[4] == 0;
 
-				soundUnitZX soundUnit;
-				soundUnit.freqTimesSeconds = 100;
-				soundUnit.tStates = 437500 / 100 - 30.125;
-				soundUnit.multiplier = 2 * size;
-				_soundsSpeakerFxZX[i]->push_back(soundUnit);
+				assert(cond1 || cond2 || cond3);
+				do {
+					soundUnitZX soundUnit;
+					soundUnit.freqTimesSeconds = 2000;
+					soundUnit.tStates = float(437500) / 2000 - 30.125;
+					int totalSize = soundSize + sVar7;
+					//debugN("totalSize: %x ", totalSize);
+					soundUnit.multiplier = float(totalSize) / 2000; // 4000
+					_soundsSpeakerFxZX[i]->push_back(soundUnit);
+					//debugN("%x ", silenceSize);
+					soundUnit.freqTimesSeconds = 0;
+					soundUnit.tStates = 0;
+					soundUnit.multiplier = float(silenceSize) / 100;// + 1) / 100;
+					_soundsSpeakerFxZX[i]->push_back(soundUnit);
+					repetitions = repetitions + -1;
+					soundSize = SFXtempStruct[5] + soundSize;
+
+					if (cond1)
+						silenceSize = (repetitions & 0xff) | (repetitions >> 8);
+					else if (cond2)
+						silenceSize = (repetitions & 0xff);
+					else
+						silenceSize = soundSize;
+
+					//debug("soundSize: %x", soundSize);
+					//sVar7 = (uint16)bVar9 << 8;
+				} while (repetitions != 0);
+				//debug("\n");
+				//if (i == 15)
+				//	assert(0);
 			} else {
-				debugC(1, kFreescapeDebugParser, "Unknown sound type: %x", soundType);
+				debugC(1, kFreescapeDebugParser, "Sound type: %x", soundType);
+				bool beep = false;
+				do {
+					soundType = 0;
+					uint16 uVar2 = SFXtempStruct[1] | (SFXtempStruct[2] << 8);
+					uint8 cVar3 = 0;
+					do {
+						//debug("start cycle %d:", cVar3);
+						//ULA_PORT = bVar4;
+						//bVar4 = bVar4 ^ 0x10;
+						beep = !beep;
+						repetitions = (((uint16)soundType * 0x100 + (uint16)soundType * -2) -
+									(uint16)((uint16)soundType * 0x100 < (uint16)soundType)) + (uVar2 & 0xff);
+						uint8 bVar9 = (byte)repetitions;
+						uint8 bVar8 = (byte)((uint16)repetitions >> 8);
+						uint8 bVar1 = bVar9 - bVar8;
+						soundType = bVar1;
+						if (bVar8 <= bVar9) {
+							bVar1 = bVar1 - 1;
+							soundType = bVar1;
+						}
+						//debug("wait %d", bVar1);
+						assert(bVar1 > 0);
+						soundUnitZX soundUnit;
+						soundUnit.freqTimesSeconds = beep ? 1000 : 0;
+						soundUnit.tStates = beep ? 437500 / 1000 - 30.125 : 0;
+						soundUnit.multiplier = float(bVar1) / 500;
+						_soundsSpeakerFxZX[i]->push_back(soundUnit);
+
+						// No need to wait
+						//do {
+						//	bVar1 = bVar1 - 1;
+						//} while (bVar1 != 0);
+						cVar3 = (char)(uVar2 >> 8) + -1;
+						uVar2 = (((uint16)cVar3) << 8) | (uint8)uVar2;
+					} while (cVar3 != '\0');
+					soundSize = soundSize + -1;
+				} while (soundSize != '\0');
 			}
 		}
-		free(SFXtempStruct);
 	}
 	//assert(0);
 }
@@ -242,8 +310,11 @@ void FreescapeEngine::playSound(int index, bool sync) {
 			debugC(1, kFreescapeDebugMedia, "WARNING: Sound %d is not available", index);
 
 		return;
-	} else if (isSpectrum()) {
+	} else if (isSpectrum() && !isDriller()) {
 		playSoundZX(_soundsSpeakerFxZX[index]);
+		return;
+	} else if (isCPC() && !isDriller()) {
+		debugC(1, kFreescapeDebugMedia, "Not implemented");
 		return;
 	}
 
@@ -369,6 +440,9 @@ void FreescapeEngine::waitForSounds() {
 }
 
 bool FreescapeEngine::isPlayingSound() {
+	if (_usePrerecordedSounds || isAmiga() || isAtariST())
+		return _mixer->isSoundIDActive(-1);
+
 	return (!_speaker->endOfStream());
 }
 
@@ -409,6 +483,11 @@ uint16 FreescapeEngine::playSoundDOSSpeaker(uint16 frequencyStart, soundSpeakerF
 void FreescapeEngine::playSoundZX(Common::Array<soundUnitZX> *data) {
 	for (auto &it : *data) {
 		soundUnitZX value = it;
+		if (value.freqTimesSeconds == 0 && value.tStates == 0) {
+			_speaker->playQueue(Audio::PCSpeaker::kWaveFormSilence, 0, 1000 * value.multiplier);
+			continue;
+		}
+
 		float hzFreq = 1 / ((value.tStates + 30.125) / 437500.0);
 		float waveDuration = value.freqTimesSeconds / hzFreq;
 		waveDuration = value.multiplier * 1000 * (waveDuration + 1);

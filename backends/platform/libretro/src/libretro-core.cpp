@@ -127,7 +127,7 @@ static void log_scummvm_exit_code(void) {
 static void audio_buffer_init(uint16 sample_rate, uint16 frame_rate) {
 	audio_samples_accumulator = 0.0f;
 	audio_samples_per_frame   = (float)sample_rate / (float)frame_rate;
-	uint32 audio_sample_buffer_size  = ((uint32)audio_samples_per_frame + 1) * 2 * sizeof(int16);
+	uint32 audio_sample_buffer_size  = ((uint32)retro_setting_get_audio_samples_buffer_size()) * 2 * sizeof(int16);
 	audio_sample_buffer       = audio_sample_buffer ? (int16 *)realloc(audio_sample_buffer, audio_sample_buffer_size) : (int16 *)malloc(audio_sample_buffer_size);
 
 	if (audio_sample_buffer)
@@ -154,7 +154,23 @@ static void audio_run(void) {
 	}
 
 	samples_produced = ((Audio::MixerImpl *)g_system->getMixer())->mixCallback((byte *) audio_sample_buffer, samples_to_read * 2 * sizeof(int16));
-	audio_status = samples_produced ? (audio_status & ~AUDIO_STATUS_MUTE) : (audio_status | AUDIO_STATUS_MUTE);
+
+	/* Workaround as currently there's no way to detect silence-only buffers from the mixer */
+	if (samples_produced) {
+		int i = 0;
+		for (; i < samples_produced; i += 2)
+			/* SID streams constant crap */
+			if (READ_UINT16(audio_sample_buffer + i) > 32)
+				break;
+		samples_produced = i >= samples_produced ? 0 : samples_produced;
+	}
+
+	if (samples_produced)
+		audio_status &= ~AUDIO_STATUS_MUTE;
+	else {
+		audio_status |= AUDIO_STATUS_MUTE;
+		return;
+	}
 
 	/* Workaround for a RetroArch audio driver
 	 * limitation: a maximum of 1024 frames
@@ -591,6 +607,10 @@ bool retro_get_input_bitmask_supported(void) {
 
 uint16 retro_setting_get_sample_rate(void) {
 	return sample_rate;
+}
+
+uint16 retro_setting_get_audio_samples_buffer_size(void) {
+	return audio_samples_per_frame + 1;
 }
 
 void init_command_params(void) {

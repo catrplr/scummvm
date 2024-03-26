@@ -19,35 +19,21 @@
  *
  */
 
-#ifndef SCUMM_PLAYERS_PLAYER_V3M_H
-#define SCUMM_PLAYERS_PLAYER_V3M_H
+#ifndef TWP_SQGAME_H
+#define TWP_SQGAME_H
 
-#include "common/scummsys.h"
-#include "common/util.h"
-#include "common/mutex.h"
-#include "scumm/music.h"
-#include "scumm/players/player_mac.h"
+#include "twp/squirrel/squirrel.h"
 
-namespace Audio {
-class Mixer;
-}
+namespace Twp {
 
-namespace Scumm {
+void regFunc(HSQUIRRELVM v, SQFUNCTION f, const SQChar *functionName, SQInteger nparamscheck = 0, const SQChar *typemask = nullptr);
+void sqgame_register_constants(HSQUIRRELVM v);
+void sqgame_register_syslib(HSQUIRRELVM v);
+void sqgame_register_objlib(HSQUIRRELVM v);
+void sqgame_register_genlib(HSQUIRRELVM v);
+void sqgame_register_actorlib(HSQUIRRELVM v);
+void sqgame_register_roomlib(HSQUIRRELVM v);
+void sqgame_register_soundlib(HSQUIRRELVM v);
 
-class ScummEngine;
-
-/**
- * Scumm V3 Macintosh music driver.
- */
-class Player_V3M : public Player_Mac {
-public:
-	Player_V3M(ScummEngine *scumm, Audio::Mixer *mixer, bool lowQuality);
-
-	bool loadMusic(const byte *ptr) override;
-	bool getNextNote(int ch, uint32 &samples, int &pitchModifier, byte &velocity) override;
-	void overrideQuality(bool lowQuality);
-};
-
-} // End of namespace Scumm
-
+} // namespace Twp
 #endif

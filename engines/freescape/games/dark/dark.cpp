@@ -395,25 +395,46 @@ bool DarkEngine::checkIfGameEnded() {
 			insertTemporaryMessage(_messagesList[1], _countdown - 2);
 			if (isSpectrum())
 				playSound(30, false);
-			else 
+			else
 				playSound(19, true);
 		}
 		_gameStateVars[kVariableDarkECD] = 0;
+
+		if (_gameStateVars[kVariableActiveECDs] == 0) {
+			_gameStateControl = kFreescapeGameStateEnd;
+			_gameStateVars[kVariableDarkEnding] = kDarkEndingECDsDestroyed;
+		}
 	}
 	return false;
 }
 
 void DarkEngine::endGame() {
+	FreescapeEngine::endGame();
+
+	if (!_endGamePlayerEndArea)
+		return;
+
 	if (_gameStateControl == kFreescapeGameStateEnd) {
-		if (!_ticksFromEnd)
-			_ticksFromEnd = _ticks;
-		else if ((_ticks - _ticksFromEnd) / 15 >= 15) {
-			if (_gameStateVars[kVariableDarkEnding]) {
-				executeLocalGlobalConditions(false, true, false);
-				_gameStateVars[kVariableDarkEnding] = 0;
-				insertTemporaryMessage(_messagesList[22], INT_MIN);
-				_currentArea->_colorRemaps.clear();
-				_gfx->setColorRemaps(&_currentArea->_colorRemaps);
+
+		if (_gameStateVars[kVariableDarkEnding] == kDarkEndingECDsDestroyed) {
+			insertTemporaryMessage(_messagesList[19], INT_MIN);
+			executeLocalGlobalConditions(false, true, false);
+			_currentArea->_colorRemaps.clear();
+			_gfx->setColorRemaps(&_currentArea->_colorRemaps);
+			_gameStateVars[kVariableDarkEnding] = 0;
+		} else if (_gameStateVars[kVariableDarkEnding] == kDarkEndingEvathDestroyed) {
+			if (!_ticksFromEnd)
+				_ticksFromEnd = _ticks;
+			else if ((_ticks - _ticksFromEnd) / 15 >= 15) {
+				if (_gameStateVars[kVariableDarkEnding]) {
+					executeLocalGlobalConditions(false, true, false);
+					if (_gameStateVars[kVariableDarkEnding] == kDarkEndingEvathDestroyed)
+						insertTemporaryMessage(_messagesList[22], INT_MIN);
+
+					_currentArea->_colorRemaps.clear();
+					_gfx->setColorRemaps(&_currentArea->_colorRemaps);
+					_gameStateVars[kVariableDarkEnding] = 0;
+				}
 			}
 		}
 	}
@@ -653,8 +674,12 @@ void DarkEngine::drawIndicator(Graphics::Surface *surface, int xPosition, int yP
 }
 
 void DarkEngine::drawSensorShoot(Sensor *sensor) {
-	if (isSpectrum())
-		playSound(2, false);
+	if (_gameStateControl == kFreescapeGameStatePlaying) {
+		// Avoid playing new sounds, so the endgame can progress
+		if (isSpectrum())
+			playSound(2, true);
+	}
+
 	Math::Vector3d target;
 	target = _position;
 	target.y() = target.y() - _playerHeight;

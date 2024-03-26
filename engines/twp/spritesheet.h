@@ -1,3 +1,4 @@
+
 /* ScummVM - Graphic Adventure Engine
  *
  * ScummVM is the legal property of its developers, whose names
@@ -19,37 +20,36 @@
  *
  */
 
-#ifndef SCUMM_PLAYERS_PLAYER_V5M_H
-#define SCUMM_PLAYERS_PLAYER_V5M_H
+#ifndef TWP_SPRITESHEET_H
+#define TWP_SPRITESHEET_H
 
-#include "common/scummsys.h"
-#include "common/util.h"
-#include "common/mutex.h"
-#include "scumm/music.h"
-#include "scumm/players/player_mac.h"
+#include "common/hashmap.h"
+#include "common/rect.h"
+#include "common/stream.h"
+#include "math/vector2d.h"
 
-namespace Audio {
-class Mixer;
-}
+namespace Twp {
 
-namespace Scumm {
-
-class ScummEngine;
-
-/**
- * Scumm V5 Macintosh music driver.
- */
-class Player_V5M : public Player_Mac {
-public:
-	Player_V5M(ScummEngine *scumm, Audio::Mixer *mixer);
-
-	bool loadMusic(const byte *ptr) override;
-	bool getNextNote(int ch, uint32 &samples, int &pitchModifier, byte &velocity) override;
-
-private:
-	uint32 _lastNoteSamples[3];
+struct SpriteSheetMetadata {
+	Common::String image;
 };
 
-} // End of namespace Scumm
+struct SpriteSheetFrame {
+	Common::String name;
+	Common::Rect frame;
+	Common::Rect spriteSourceSize;
+	Math::Vector2d sourceSize;
+};
 
-#endif
+struct SpriteSheet {
+	void parseSpriteSheet(const Common::String &contents);
+	const SpriteSheetFrame *frame(const Common::String &key) const;
+	const SpriteSheetFrame &getFrame(const Common::String &key) const;
+
+	SpriteSheetMetadata meta;
+	Common::HashMap<Common::String, SpriteSheetFrame> _frameTable;
+};
+
+} // namespace Twp
+
+#endif // TWP_SPRITESHEET_H
